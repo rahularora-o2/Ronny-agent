@@ -6,7 +6,7 @@ const { getMemory, saveMemory } = require("./memory");
 
 const app = express();
 app.use(express.json());
-app.use(express.text());
+app.use(express.text());  // Allow requests from anywhere (desktop app, browser, iOS Shortcut) app.use((req, res, next) => {   res.header("Access-Control-Allow-Origin", "*");   res.header("Access-Control-Allow-Headers", "Content-Type");   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");   if (req.method === "OPTIONS") return res.sendStatus(200);   next(); });
 
 // ─── Health check ────────────────────────────────────
 app.get("/", (req, res) => {
