@@ -139,9 +139,11 @@ Be smart about the search query — extract the core product name and add useful
 - "What's 18% GST on 5000?" → QUESTION intent, reply: "18% GST on 5000 is 900, making the total 5,900."
 - "Give me 3 tips for my investor pitch" → QUESTION intent, give 3 specific tips
 - "Compare SIP vs lump sum investment" → QUESTION intent, give a balanced comparison
-- "What's the time difference between India and New York?" → QUESTION intent, answer directly
-- "Summarize the latest RBI policy" → QUESTION intent, give a brief summary
-For QUESTION intent, DO NOT generate any actions — just give a great answer in the reply field. No deep links needed.
+- "What's the oil barrel price?" → QUESTION intent, use web search to get current price
+- "What's the Nifty at?" → QUESTION intent, use web search for real-time data
+- "Latest news on RBI rate decision" → QUESTION intent, use web search for latest info
+- "Zomato stock price" → QUESTION intent, use web search for current price
+For QUESTION intent: your "reply" should be the FULL ANSWER. Use web search for ANY real-time data like prices, stock markets, news, weather, sports scores, exchange rates, etc. No deep links needed.
 
 Be smart. Infer what ${USER_NAME} needs. Chain actions naturally.`;
 
@@ -155,13 +157,17 @@ async function parseIntent(userText) {
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
+    tools: [{ type: "web_search_20250305", name: "web_search" }],
     messages: [{ role: "user", content: `Current: ${dateStr}, ${timeStr}\n\n${USER_NAME} says: "${userText}"` }],
   });
 
-  const text = message.content.filter(b => b.type === "text").map(b => b.text).join("");
+  // Extract text from all content blocks (including after web search)
+  const text = message.content.filter(b => b.type === "text").map(b => b.text).join("\n");
 
   try {
-    const cleaned = text.replace(/```json\n?|```/g, "").trim();
+    // Try to find JSON in the response (may be wrapped in text from web search)
+    const jsonMatch = text.match(/\{[\s\S]*"intent"[\s\S]*"reply"[\s\S]*\}/);
+    const cleaned = jsonMatch ? jsonMatch[0] : text.replace(/```json\n?|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     return {
       intent: parsed.intent || "CHAT",
@@ -171,7 +177,21 @@ async function parseIntent(userText) {
       deepLink: parsed.deepLink || null,
     };
   } catch (err) {
-    return { intent: "CHAT", confidence: 0.3, actions: [], reply: text.slice(0, 200), deepLink: null };
+    // If Claude used web search and returned plain text (not JSON), treat as Q&A answer
+    // Clean up any citation markers and extract readable text
+    const cleanReply = text
+      .replace(/\【[^\】]*\】/g, "")  // Remove citation brackets
+      .replace(/```json\n?|```/g, "")
+      .replace(/\n{3,}/g, "\n")
+      .trim()
+      .slice(0, 500);  // Allow longer answers for Q&A
+    return {
+      intent: "QUESTION",
+      confidence: 0.7,
+      actions: [{ type: "question_answer", params: { topic: "web_search" } }],
+      reply: cleanReply || "I found some info but had trouble formatting it. Try asking again.",
+      deepLink: null,
+    };
   }
 }
 
@@ -228,112 +248,77 @@ async function executeActions(actions) {
           const foodApp = action.params?.app || "zomato";
           const restaurant = (action.params?.restaurant || "").toLowerCase();
           const foodSearch = (action.params?.search || action.params?.items_hint || "").toLowerCase();
-          // Favourite restaurants → direct Zomato web links (open in app via universal links)
           const FAVOURITE_RESTAURANTS = {
-            "bikanervala": { url: "https://www.zomato.com/ncr/bikanervala-1-sector-14-gurgaon", usual: "Raj Kachori, Chole Bhature" },
-            "haldirams": { url: "https://www.zomato.com/ncr/haldirams-sector-14-gurgaon", usual: "" },
-            "haldiram's": { url: "https://www.zomato.com/ncr/haldirams-sector-14-gurgaon", usual: "" },
-            "burger king": { url: "https://www.zomato.com/ncr/burger-king-sector-14-gurgaon", usual: "" },
-            "dominos": { url: "https://www.zomato.com/ncr/dominos-pizza-sector-14-gurgaon", usual: "" },
-            "domino's": { url: "https://www.zomato.com/ncr/dominos-pizza-sector-14-gurgaon", usual: "" },
+            "bikanervala": { url: "zomato://search?q=Bikanervala", usual: "Raj Kachori, Chole Bhature" },
+            "haldirams": { url: "zomato://search?q=Haldirams", usual: "" },
+            "haldiram's": { url: "zomato://search?q=Haldirams", usual: "" },
+            "burger king": { url: "zomato://search?q=Burger%20King", usual: "" },
+            "dominos": { url: "zomato://search?q=Dominos", usual: "" },
+            "domino's": { url: "zomato://search?q=Dominos", usual: "" },
           };
-          // Zomato "What's on your mind" curated category URLs
-          // These open the app with curated nearby results — much better than plain search
-          const ZOMATO_CATEGORIES = {
-            "coffee": "coffee-restaurants-near-me",
-            "cold coffee": "coffee-restaurants-near-me",
-            "biryani": "biryani-restaurants-near-me",
-            "chicken biryani": "biryani-restaurants-near-me",
-            "veg biryani": "biryani-restaurants-near-me",
-            "burger": "burger-restaurants-near-me",
-            "burgers": "burger-restaurants-near-me",
-            "pizza": "pizza-restaurants-near-me",
-            "cake": "cake-restaurants-near-me",
-            "cakes": "cake-restaurants-near-me",
-            "dessert": "desserts-restaurants-near-me",
-            "desserts": "desserts-restaurants-near-me",
-            "ice cream": "ice-cream-restaurants-near-me",
-            "sandwich": "sandwich-restaurants-near-me",
-            "momos": "momos-restaurants-near-me",
-            "momo": "momos-restaurants-near-me",
-            "dosa": "dosa-restaurants-near-me",
-            "south indian": "south-indian-restaurants-near-me",
-            "idli": "south-indian-restaurants-near-me",
-            "thali": "thali-restaurants-near-me",
-            "north indian": "north-indian-restaurants-near-me",
-            "chinese": "chinese-restaurants-near-me",
-            "noodles": "chinese-restaurants-near-me",
-            "chowmein": "chinese-restaurants-near-me",
-            "pasta": "pasta-restaurants-near-me",
-            "sushi": "sushi-restaurants-near-me",
-            "japanese": "sushi-restaurants-near-me",
-            "ramen": "ramen-restaurants-near-me",
-            "rolls": "rolls-restaurants-near-me",
-            "wrap": "rolls-restaurants-near-me",
-            "wraps": "rolls-restaurants-near-me",
-            "tea": "tea-restaurants-near-me",
-            "chai": "tea-restaurants-near-me",
-            "juice": "juice-restaurants-near-me",
-            "smoothie": "juice-restaurants-near-me",
-            "salad": "salad-restaurants-near-me",
-            "soup": "soup-restaurants-near-me",
-            "paratha": "paratha-restaurants-near-me",
-            "chole bhature": "chole-bhature-restaurants-near-me",
-            "samosa": "samosa-restaurants-near-me",
-            "pav bhaji": "pav-bhaji-restaurants-near-me",
-            "fried rice": "fried-rice-restaurants-near-me",
-            "paneer": "paneer-restaurants-near-me",
-            "chicken": "chicken-restaurants-near-me",
-            "kebab": "kebab-restaurants-near-me",
-            "kebabs": "kebab-restaurants-near-me",
-            "shawarma": "shawarma-restaurants-near-me",
-            "chocolate": "chocolate-restaurants-near-me",
-            "waffle": "waffle-restaurants-near-me",
-            "waffles": "waffle-restaurants-near-me",
-            "pancake": "pancake-restaurants-near-me",
-            "breakfast": "breakfast-restaurants-near-me",
-            "lunch": "lunch-restaurants-near-me",
-            "dinner": "dinner-restaurants-near-me",
-            "bakery": "bakery-restaurants-near-me",
-            "mughlai": "mughlai-restaurants-near-me",
-            "italian": "italian-restaurants-near-me",
-            "mexican": "mexican-restaurants-near-me",
-            "korean": "korean-restaurants-near-me",
-            "thai": "thai-restaurants-near-me",
-            "continental": "continental-restaurants-near-me",
-            "mutton": "mutton-restaurants-near-me",
-            "fish": "fish-restaurants-near-me",
-            "seafood": "seafood-restaurants-near-me",
-            "rajasthani": "rajasthani-restaurants-near-me",
-            "gujarati": "gujarati-restaurants-near-me",
-            "punjabi": "punjabi-restaurants-near-me",
-            "maggi": "maggi-restaurants-near-me",
-            "mandi": "mandi-restaurants-near-me",
+          // Zomato curated dish deep links (these open the "What's on your mind" sections)
+          const ZOMATO_DISH_LINKS = {
+            "coffee": "zomato://delivery/category/coffee",
+            "cold coffee": "zomato://delivery/category/coffee",
+            "biryani": "zomato://delivery/category/biryani",
+            "chicken biryani": "zomato://delivery/category/biryani",
+            "burger": "zomato://delivery/category/burger",
+            "burgers": "zomato://delivery/category/burger",
+            "pizza": "zomato://delivery/category/pizza",
+            "cake": "zomato://delivery/category/cake",
+            "cakes": "zomato://delivery/category/cake",
+            "dessert": "zomato://delivery/category/desserts",
+            "desserts": "zomato://delivery/category/desserts",
+            "ice cream": "zomato://delivery/category/ice_cream",
+            "sandwich": "zomato://delivery/category/sandwich",
+            "momos": "zomato://delivery/category/momos",
+            "momo": "zomato://delivery/category/momos",
+            "dosa": "zomato://delivery/category/dosa",
+            "south indian": "zomato://delivery/category/south_indian",
+            "idli": "zomato://delivery/category/south_indian",
+            "thali": "zomato://delivery/category/thali",
+            "north indian": "zomato://delivery/category/north_indian",
+            "chinese": "zomato://delivery/category/chinese",
+            "noodles": "zomato://delivery/category/chinese",
+            "pasta": "zomato://delivery/category/pasta",
+            "rolls": "zomato://delivery/category/rolls",
+            "tea": "zomato://delivery/category/tea",
+            "chai": "zomato://delivery/category/tea",
+            "juice": "zomato://delivery/category/juice",
+            "salad": "zomato://delivery/category/salad",
+            "paratha": "zomato://delivery/category/paratha",
+            "chole bhature": "zomato://delivery/category/chole_bhature",
+            "paneer": "zomato://delivery/category/paneer",
+            "chicken": "zomato://delivery/category/chicken",
+            "kebab": "zomato://delivery/category/kebab",
+            "kebabs": "zomato://delivery/category/kebab",
+            "shawarma": "zomato://delivery/category/shawarma",
+            "waffle": "zomato://delivery/category/waffle",
+            "waffles": "zomato://delivery/category/waffle",
+            "breakfast": "zomato://delivery/category/breakfast",
           };
-          // Check if it matches a favourite restaurant
           const matchedFav = Object.keys(FAVOURITE_RESTAURANTS).find(name => restaurant.includes(name));
           let foodLink;
           if (matchedFav) {
             foodLink = FAVOURITE_RESTAURANTS[matchedFav].url;
           } else if (foodApp === "zomato") {
             const searchTerm = restaurant || foodSearch || "";
-            // Check if it matches a curated category (What's on your mind)
-            const matchedCategory = Object.keys(ZOMATO_CATEGORIES).find(cat => searchTerm.includes(cat));
-            if (matchedCategory) {
-              foodLink = `https://www.zomato.com/${ZOMATO_CATEGORIES[matchedCategory]}`;
+            // Try curated category deep link first
+            const matchedDish = Object.keys(ZOMATO_DISH_LINKS).find(dish => searchTerm.includes(dish));
+            if (matchedDish) {
+              foodLink = ZOMATO_DISH_LINKS[matchedDish];
             } else if (searchTerm) {
-              // Fallback: try the "near me" URL pattern first (works for most food types)
-              const slug = searchTerm.replace(/\s+/g, "-").toLowerCase();
-              foodLink = `https://www.zomato.com/${slug}-restaurants-near-me`;
+              // Fallback to Zomato in-app search
+              foodLink = `zomato://search?q=${encodeURIComponent(searchTerm)}`;
             } else {
-              foodLink = `https://www.zomato.com/ncr/golf-course-order-online`;
+              foodLink = "zomato://";
             }
           } else {
             const swiggySearch = restaurant || foodSearch || "";
             if (swiggySearch) {
               foodLink = `swiggy://search?query=${encodeURIComponent(swiggySearch)}`;
             } else {
-              foodLink = `swiggy://`;
+              foodLink = "swiggy://";
             }
           }
           results.push({ type: action.type, status: "link_generated", deepLink: foodLink, restaurant: matchedFav || restaurant });
