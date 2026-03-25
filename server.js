@@ -272,7 +272,7 @@ async function executeActions(actions) {
             const searchTerm = matchedFav ? FAVOURITE_RESTAURANTS[matchedFav] : (restaurant || foodSearch || "");
             if (searchTerm) {
               // Use Zomato app scheme — opens search inside the app
-              foodLink = `https://www.zomato.com/ncr/delivery?q=${encodeURIComponent(searchTerm)}`;
+              foodLink = `https://www.zomato.com/ncr/search?q=${encodeURIComponent(searchTerm)}`;
             } else {
               foodLink = "zomato://";
             }
