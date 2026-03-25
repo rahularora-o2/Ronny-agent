@@ -272,7 +272,7 @@ async function executeActions(actions) {
             const searchTerm = matchedFav ? FAVOURITE_RESTAURANTS[matchedFav] : (restaurant || foodSearch || "");
             if (searchTerm) {
               // Use Zomato app scheme — opens search inside the app
-              foodLink = `zomato://search?q=${encodeURIComponent(searchTerm)}`;
+              foodLink = `https://www.zomato.com/ncr/delivery?q=${encodeURIComponent(searchTerm)}`;
             } else {
               foodLink = "zomato://";
             }
@@ -470,7 +470,7 @@ app.get("/ronny/today", async (req, res) => {
 
 // ─── Health Check ───────────────────────────────────
 app.get("/", (req, res) => {
-  res.json({ status: "🟢 Ronny is awake", version: "1.0.0" });
+  res.json({ status: "🟢 Ronny is awake", version: "2.0.0" });
 });
 
 // ─── Start ──────────────────────────────────────────
