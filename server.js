@@ -237,23 +237,98 @@ async function executeActions(actions) {
             "dominos": { url: "https://www.zomato.com/ncr/dominos-pizza-sector-14-gurgaon", usual: "" },
             "domino's": { url: "https://www.zomato.com/ncr/dominos-pizza-sector-14-gurgaon", usual: "" },
           };
-          // Check if it matches a favourite
+          // Zomato "What's on your mind" curated category URLs
+          // These open the app with curated nearby results — much better than plain search
+          const ZOMATO_CATEGORIES = {
+            "coffee": "coffee-restaurants-near-me",
+            "cold coffee": "coffee-restaurants-near-me",
+            "biryani": "biryani-restaurants-near-me",
+            "chicken biryani": "biryani-restaurants-near-me",
+            "veg biryani": "biryani-restaurants-near-me",
+            "burger": "burger-restaurants-near-me",
+            "burgers": "burger-restaurants-near-me",
+            "pizza": "pizza-restaurants-near-me",
+            "cake": "cake-restaurants-near-me",
+            "cakes": "cake-restaurants-near-me",
+            "dessert": "desserts-restaurants-near-me",
+            "desserts": "desserts-restaurants-near-me",
+            "ice cream": "ice-cream-restaurants-near-me",
+            "sandwich": "sandwich-restaurants-near-me",
+            "momos": "momos-restaurants-near-me",
+            "momo": "momos-restaurants-near-me",
+            "dosa": "dosa-restaurants-near-me",
+            "south indian": "south-indian-restaurants-near-me",
+            "idli": "south-indian-restaurants-near-me",
+            "thali": "thali-restaurants-near-me",
+            "north indian": "north-indian-restaurants-near-me",
+            "chinese": "chinese-restaurants-near-me",
+            "noodles": "chinese-restaurants-near-me",
+            "chowmein": "chinese-restaurants-near-me",
+            "pasta": "pasta-restaurants-near-me",
+            "sushi": "sushi-restaurants-near-me",
+            "japanese": "sushi-restaurants-near-me",
+            "ramen": "ramen-restaurants-near-me",
+            "rolls": "rolls-restaurants-near-me",
+            "wrap": "rolls-restaurants-near-me",
+            "wraps": "rolls-restaurants-near-me",
+            "tea": "tea-restaurants-near-me",
+            "chai": "tea-restaurants-near-me",
+            "juice": "juice-restaurants-near-me",
+            "smoothie": "juice-restaurants-near-me",
+            "salad": "salad-restaurants-near-me",
+            "soup": "soup-restaurants-near-me",
+            "paratha": "paratha-restaurants-near-me",
+            "chole bhature": "chole-bhature-restaurants-near-me",
+            "samosa": "samosa-restaurants-near-me",
+            "pav bhaji": "pav-bhaji-restaurants-near-me",
+            "fried rice": "fried-rice-restaurants-near-me",
+            "paneer": "paneer-restaurants-near-me",
+            "chicken": "chicken-restaurants-near-me",
+            "kebab": "kebab-restaurants-near-me",
+            "kebabs": "kebab-restaurants-near-me",
+            "shawarma": "shawarma-restaurants-near-me",
+            "chocolate": "chocolate-restaurants-near-me",
+            "waffle": "waffle-restaurants-near-me",
+            "waffles": "waffle-restaurants-near-me",
+            "pancake": "pancake-restaurants-near-me",
+            "breakfast": "breakfast-restaurants-near-me",
+            "lunch": "lunch-restaurants-near-me",
+            "dinner": "dinner-restaurants-near-me",
+            "bakery": "bakery-restaurants-near-me",
+            "mughlai": "mughlai-restaurants-near-me",
+            "italian": "italian-restaurants-near-me",
+            "mexican": "mexican-restaurants-near-me",
+            "korean": "korean-restaurants-near-me",
+            "thai": "thai-restaurants-near-me",
+            "continental": "continental-restaurants-near-me",
+            "mutton": "mutton-restaurants-near-me",
+            "fish": "fish-restaurants-near-me",
+            "seafood": "seafood-restaurants-near-me",
+            "rajasthani": "rajasthani-restaurants-near-me",
+            "gujarati": "gujarati-restaurants-near-me",
+            "punjabi": "punjabi-restaurants-near-me",
+            "maggi": "maggi-restaurants-near-me",
+            "mandi": "mandi-restaurants-near-me",
+          };
+          // Check if it matches a favourite restaurant
           const matchedFav = Object.keys(FAVOURITE_RESTAURANTS).find(name => restaurant.includes(name));
           let foodLink;
           if (matchedFav) {
-            // Known restaurant → direct page link
             foodLink = FAVOURITE_RESTAURANTS[matchedFav].url;
           } else if (foodApp === "zomato") {
-            // Use zomato:// app scheme for searches — opens native in-app search
-            // This uses your GPS location and shows nearby results
             const searchTerm = restaurant || foodSearch || "";
-            if (searchTerm) {
-              foodLink = `zomato://search?q=${encodeURIComponent(searchTerm)}`;
+            // Check if it matches a curated category (What's on your mind)
+            const matchedCategory = Object.keys(ZOMATO_CATEGORIES).find(cat => searchTerm.includes(cat));
+            if (matchedCategory) {
+              foodLink = `https://www.zomato.com/${ZOMATO_CATEGORIES[matchedCategory]}`;
+            } else if (searchTerm) {
+              // Fallback: try the "near me" URL pattern first (works for most food types)
+              const slug = searchTerm.replace(/\s+/g, "-").toLowerCase();
+              foodLink = `https://www.zomato.com/${slug}-restaurants-near-me`;
             } else {
-              foodLink = `zomato://`;
+              foodLink = `https://www.zomato.com/ncr/golf-course-order-online`;
             }
           } else {
-            // Swiggy
             const swiggySearch = restaurant || foodSearch || "";
             if (swiggySearch) {
               foodLink = `swiggy://search?query=${encodeURIComponent(swiggySearch)}`;
