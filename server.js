@@ -1,8 +1,3 @@
-// ╔══════════════════════════════════════════════════════╗
-// ║  RONNY — Single File AI Agent                        ║
-// ║  Deploy on Glitch.com in 2 minutes                   ║
-// ╚══════════════════════════════════════════════════════╝
-
 const express = require("express");
 const Anthropic = require("@anthropic-ai/sdk");
 
