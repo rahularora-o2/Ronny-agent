@@ -153,43 +153,58 @@ async function parseIntent(userText) {
   const dateStr = today.toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const timeStr = today.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
+  // Step 1: Parse intent WITHOUT web search (clean JSON response)
   const message = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
-    tools: [{ type: "web_search_20250305", name: "web_search" }],
     messages: [{ role: "user", content: `Current: ${dateStr}, ${timeStr}\n\n${USER_NAME} says: "${userText}"` }],
   });
 
-  // Extract text from all content blocks (including after web search)
-  const text = message.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+  const text = message.content.filter(b => b.type === "text").map(b => b.text).join("");
 
   try {
-    // Try to find JSON in the response (may be wrapped in text from web search)
-    const jsonMatch = text.match(/\{[\s\S]*"intent"[\s\S]*"reply"[\s\S]*\}/);
-    const cleaned = jsonMatch ? jsonMatch[0] : text.replace(/```json\n?|```/g, "").trim();
+    const cleaned = text.replace(/```json\n?|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
-    return {
+    let result = {
       intent: parsed.intent || "CHAT",
       confidence: parsed.confidence || 0.5,
       actions: parsed.actions || [],
       reply: parsed.reply || "Done.",
       deepLink: parsed.deepLink || null,
     };
+
+    // Step 2: If QUESTION intent needs real-time data, do a web search call
+    const needsLiveData = result.intent === "QUESTION" && 
+      /price|stock|market|rate|score|weather|news|latest|current|today|live|nifty|sensex|crude|oil|gold|silver|bitcoin|crypto|dollar|rupee|exchange/i.test(userText);
+    
+    if (needsLiveData) {
+      try {
+        const searchMsg = await client.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1024,
+          system: "You are a helpful assistant. Answer the question concisely in 2-3 sentences with the latest data. Just give the answer as plain text, no JSON.",
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          messages: [{ role: "user", content: userText }],
+        });
+        const searchReply = searchMsg.content.filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+        if (searchReply) {
+          result.reply = searchReply.slice(0, 500);
+        }
+      } catch (searchErr) {
+        console.log("  ⚠️ Web search failed:", searchErr.message);
+        // Keep original reply from step 1
+      }
+    }
+
+    return result;
   } catch (err) {
-    // If Claude used web search and returned plain text (not JSON), treat as Q&A answer
-    // Clean up any citation markers and extract readable text
-    const cleanReply = text
-      .replace(/\【[^\】]*\】/g, "")  // Remove citation brackets
-      .replace(/```json\n?|```/g, "")
-      .replace(/\n{3,}/g, "\n")
-      .trim()
-      .slice(0, 500);  // Allow longer answers for Q&A
+    // Fallback for non-JSON responses
     return {
-      intent: "QUESTION",
-      confidence: 0.7,
-      actions: [{ type: "question_answer", params: { topic: "web_search" } }],
-      reply: cleanReply || "I found some info but had trouble formatting it. Try asking again.",
+      intent: "CHAT",
+      confidence: 0.3,
+      actions: [],
+      reply: text.slice(0, 300) || "I understood you but had trouble processing. Try again?",
       deepLink: null,
     };
   }
@@ -249,79 +264,29 @@ async function executeActions(actions) {
           const restaurant = (action.params?.restaurant || "").toLowerCase();
           const foodSearch = (action.params?.search || action.params?.items_hint || "").toLowerCase();
           const FAVOURITE_RESTAURANTS = {
-            "bikanervala": { url: "zomato://search?q=Bikanervala", usual: "Raj Kachori, Chole Bhature" },
-            "haldirams": { url: "zomato://search?q=Haldirams", usual: "" },
-            "haldiram's": { url: "zomato://search?q=Haldirams", usual: "" },
-            "burger king": { url: "zomato://search?q=Burger%20King", usual: "" },
-            "dominos": { url: "zomato://search?q=Dominos", usual: "" },
-            "domino's": { url: "zomato://search?q=Dominos", usual: "" },
-          };
-          // Zomato curated dish deep links (these open the "What's on your mind" sections)
-          const ZOMATO_DISH_LINKS = {
-            "coffee": "zomato://delivery/category/coffee",
-            "cold coffee": "zomato://delivery/category/coffee",
-            "biryani": "zomato://delivery/category/biryani",
-            "chicken biryani": "zomato://delivery/category/biryani",
-            "burger": "zomato://delivery/category/burger",
-            "burgers": "zomato://delivery/category/burger",
-            "pizza": "zomato://delivery/category/pizza",
-            "cake": "zomato://delivery/category/cake",
-            "cakes": "zomato://delivery/category/cake",
-            "dessert": "zomato://delivery/category/desserts",
-            "desserts": "zomato://delivery/category/desserts",
-            "ice cream": "zomato://delivery/category/ice_cream",
-            "sandwich": "zomato://delivery/category/sandwich",
-            "momos": "zomato://delivery/category/momos",
-            "momo": "zomato://delivery/category/momos",
-            "dosa": "zomato://delivery/category/dosa",
-            "south indian": "zomato://delivery/category/south_indian",
-            "idli": "zomato://delivery/category/south_indian",
-            "thali": "zomato://delivery/category/thali",
-            "north indian": "zomato://delivery/category/north_indian",
-            "chinese": "zomato://delivery/category/chinese",
-            "noodles": "zomato://delivery/category/chinese",
-            "pasta": "zomato://delivery/category/pasta",
-            "rolls": "zomato://delivery/category/rolls",
-            "tea": "zomato://delivery/category/tea",
-            "chai": "zomato://delivery/category/tea",
-            "juice": "zomato://delivery/category/juice",
-            "salad": "zomato://delivery/category/salad",
-            "paratha": "zomato://delivery/category/paratha",
-            "chole bhature": "zomato://delivery/category/chole_bhature",
-            "paneer": "zomato://delivery/category/paneer",
-            "chicken": "zomato://delivery/category/chicken",
-            "kebab": "zomato://delivery/category/kebab",
-            "kebabs": "zomato://delivery/category/kebab",
-            "shawarma": "zomato://delivery/category/shawarma",
-            "waffle": "zomato://delivery/category/waffle",
-            "waffles": "zomato://delivery/category/waffle",
-            "breakfast": "zomato://delivery/category/breakfast",
+            "bikanervala": "Bikanervala",
+            "haldirams": "Haldirams",
+            "haldiram's": "Haldirams",
+            "burger king": "Burger King",
+            "dominos": "Dominos",
+            "domino's": "Dominos",
           };
           const matchedFav = Object.keys(FAVOURITE_RESTAURANTS).find(name => restaurant.includes(name));
           let foodLink;
-          if (matchedFav) {
-            foodLink = FAVOURITE_RESTAURANTS[matchedFav].url;
-          } else if (foodApp === "zomato") {
-            const searchTerm = restaurant || foodSearch || "";
-            // Try curated category deep link first
-            const matchedDish = Object.keys(ZOMATO_DISH_LINKS).find(dish => searchTerm.includes(dish));
-            if (matchedDish) {
-              foodLink = ZOMATO_DISH_LINKS[matchedDish];
-            } else if (searchTerm) {
-              // Fallback to Zomato in-app search
+          if (foodApp === "zomato" || !foodApp) {
+            const searchTerm = matchedFav ? FAVOURITE_RESTAURANTS[matchedFav] : (restaurant || foodSearch || "");
+            if (searchTerm) {
+              // Use Zomato app scheme — opens search inside the app
               foodLink = `zomato://search?q=${encodeURIComponent(searchTerm)}`;
             } else {
               foodLink = "zomato://";
             }
           } else {
-            const swiggySearch = restaurant || foodSearch || "";
-            if (swiggySearch) {
-              foodLink = `swiggy://search?query=${encodeURIComponent(swiggySearch)}`;
-            } else {
-              foodLink = "swiggy://";
-            }
+            // Swiggy
+            const swiggyTerm = restaurant || foodSearch || "";
+            foodLink = swiggyTerm ? `swiggy://search?query=${encodeURIComponent(swiggyTerm)}` : "swiggy://";
           }
-          results.push({ type: action.type, status: "link_generated", deepLink: foodLink, restaurant: matchedFav || restaurant });
+          results.push({ type: action.type, status: "link_generated", deepLink: foodLink });
           break;
 
         case "grocery_order":
@@ -450,17 +415,42 @@ app.post("/ronny", async (req, res) => {
 
     const results = await executeActions(parsed.actions);
 
-    // Find primary deep-link
-    let deepLink = parsed.deepLink;
+    // Find primary deep-link: check parsed.deepLink first, then action results
+    let deepLink = parsed.deepLink || null;
     if (!deepLink) {
-      const linkResult = results.find(r => r.deepLink);
-      if (linkResult) deepLink = linkResult.deepLink;
+      for (const r of results) {
+        if (r.deepLink) {
+          deepLink = r.deepLink;
+          break;
+        }
+      }
     }
 
-    res.json({ reply: parsed.reply, intent: parsed.intent, actions: results, deepLink });
+    console.log(`🔗 deepLink: ${deepLink || "none"}`);
+
+    res.json({ reply: parsed.reply, intent: parsed.intent, actions: results, deepLink: deepLink });
   } catch (err) {
     console.error("❌", err.message);
     res.json({ reply: "Something went wrong. Try again in a sec.", error: err.message });
+  }
+});
+
+// ─── Debug Test Endpoint (GET) ──────────────────────
+// Test: https://your-url/ronny/test?q=coffee+on+zomato
+app.get("/ronny/test", async (req, res) => {
+  const q = req.query.q || "order coffee on zomato";
+  try {
+    const parsed = await parseIntent(q);
+    const results = await executeActions(parsed.actions);
+    let deepLink = parsed.deepLink || null;
+    if (!deepLink) {
+      for (const r of results) {
+        if (r.deepLink) { deepLink = r.deepLink; break; }
+      }
+    }
+    res.json({ query: q, intent: parsed.intent, reply: parsed.reply, deepLink, actions: results, rawParsed: parsed });
+  } catch (err) {
+    res.json({ query: q, error: err.message });
   }
 });
 
