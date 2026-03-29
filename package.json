@@ -1,15 +1,16 @@
 {
   "name": "ronny-agent",
-  "version": "1.0.0",
-  "description": "Ronny — your personal AI agent backend",
-  "main": "src/server.js",
+  "version": "3.0.0",
+  "description": "Ronny — your personal AI agent",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "express": "^4.21.0",
-    "dotenv": "^16.4.5"
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
