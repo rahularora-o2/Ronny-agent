@@ -5,7 +5,6 @@ const app = express();
 app.use(express.json());
 app.use(express.text());
 
-// Allow requests from anywhere (desktop app, browser, iOS Shortcut)
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Content-Type");
@@ -19,149 +18,73 @@ const USER_NAME = process.env.USER_NAME || "Rahul";
 const CALENDAR_URL = process.env.GOOGLE_APPS_SCRIPT_URL || "";
 const IFTTT_KEY = process.env.IFTTT_WEBHOOK_KEY || "";
 
-// ─── Ronny's Brain (System Prompt) ──────────────────
-const SYSTEM_PROMPT = `You are Ronny, ${USER_NAME}'s personal AI agent. You are sharp, warm, efficient, and slightly witty — like a trusted chief of staff.
+const SYSTEM_PROMPT = `You are Ronny, ${USER_NAME}'s personal AI agent. You are sharp, warm, efficient, and slightly witty.
 
 You receive voice commands and must respond with a JSON object only (no markdown fences, no extra text):
 {
   "intent": "LIGHTS | CALENDAR | CAB | FOOD | GROCERY | SHOPPING | WHATSAPP | TENNIS | MYGATE | REMINDER | QUESTION | MULTI | CHAT",
   "confidence": 0.0-1.0,
   "actions": [{ "type": "action_name", "params": { } }],
-  "reply": "What Siri should say back (1-3 sentences, concise)",
-  "deepLink": "app://url or null",
+  "reply": "What to say back (1-3 sentences, concise)",
+  "deepLink": null,
   "memoryUpdate": null
 }
 
 ## Capabilities
-- LIGHTS: scenes — morning, movie, away, goodnight, bright, relax
+- LIGHTS: scenes: morning, movie, away, goodnight, bright, relax
   Action: { "type": "lights_scene", "params": { "scene": "movie" } }
 - CALENDAR: create events, check schedule
   Create: { "type": "calendar_create", "params": { "title": "...", "date": "YYYY-MM-DD", "time": "HH:MM", "duration_minutes": 60 } }
   Query: { "type": "calendar_query", "params": { "date": "today|tomorrow" } }
 - CAB: { "type": "cab_book", "params": { "service": "uber|ola", "destination": "..." } }
-- FOOD: { "type": "food_order", "params": { "app": "zomato|swiggy", "restaurant": "restaurant name if specific", "search": "food item or cuisine to search for", "items_hint": "what they might want" } }
-  IMPORTANT: When ${USER_NAME} names a specific restaurant (Bikanervala, Domino's etc.) → put it in "restaurant".
-  When ${USER_NAME} says a food item or cuisine (coffee, biryani, pizza, Chinese) → put it in "search" and leave "restaurant" empty.
-  When ${USER_NAME} says a food item that matches a favourite restaurant, use that restaurant name.
+- FOOD: { "type": "food_order", "params": { "app": "zomato|swiggy", "restaurant": "restaurant name if specific", "search": "food item or cuisine to search for" } }
+  When ${USER_NAME} names a specific restaurant, put it in "restaurant". When a food item or cuisine (coffee, biryani, pizza, Chinese), put it in "search".
 - GROCERY: { "type": "grocery_order", "params": { "app": "blinkit|bigbasket" } }
-- SHOPPING: { "type": "shopping_search", "params": { "app": "amazon|flipkart", "query": "what to search for", "category": "electronics|fashion|home|beauty|books|grocery|mobiles|appliances" } }
-  Use this for ANY product search, purchase, or shopping request. Default to Amazon unless ${USER_NAME} specifically says Flipkart.
-- WHATSAPP: Send messages, open chats, or make calls on WhatsApp
-  Message: { "type": "whatsapp_message", "params": { "contact": "person's name", "phone": "phone number with country code if known, or empty", "message": "the message text to pre-fill" } }
-  Call: { "type": "whatsapp_call", "params": { "contact": "person's name", "phone": "phone number if known" } }
-  Examples: "Message Amit saying I'll be 10 mins late" → whatsapp_message with message pre-filled
-  "WhatsApp mom that I'm coming home" → whatsapp_message to mom
-  "Call Priya on WhatsApp" → whatsapp_call
-  NOTE: If you don't know the phone number, just open WhatsApp to the search screen so ${USER_NAME} can pick the contact.
-- QUESTION: For any general knowledge question, factual query, opinion, advice, calculation, or anything that needs a smart answer.
-  Action: { "type": "question_answer", "params": { "topic": "brief topic" } }
-  Use this when ${USER_NAME} asks things like: "What's the capital of France?", "Explain machine learning", "What's 15% of 4500?", "Give me 3 interview tips", "What's the weather like in March in Goa?", "Compare mutual funds vs FDs", "How does UPI work?", etc.
-  For QUESTION intent: your "reply" should be the FULL ANSWER — detailed, helpful, spoken naturally. This is where you act as a knowledgeable assistant, not just a command router. Give substantive 2-4 sentence answers. For calculations, give the result. For advice, be specific and actionable.
+- SHOPPING: { "type": "shopping_search", "params": { "app": "amazon|flipkart", "query": "search terms", "category": "electronics|fashion|home" } }
+- WHATSAPP: { "type": "whatsapp_message", "params": { "contact": "name", "phone": "", "message": "text" } }
+  Call: { "type": "whatsapp_call", "params": { "contact": "name", "phone": "" } }
+- QUESTION: { "type": "question_answer", "params": { "topic": "brief topic" } }
+  Use for ANY knowledge question, calculation, advice, opinion. Give substantive 2-4 sentence answers.
 - TENNIS: { "type": "tennis_book", "params": { "day": "Saturday", "time": "07:00" } }
 - MYGATE: { "type": "mygate_action", "params": { "action": "visitor_preapprove" } }
 
 ## ${USER_NAME}'s Preferences
-- Works at Zomato, senior finance role, Gurgaon office
-- Plays tennis on weekends, usually 7 AM
-- Prefers Uber over Ola, Zomato for food, Blinkit for groceries
-- Prefers Amazon over Flipkart for shopping
+- Works at Zomato, senior finance role, Gurgaon
+- Plays tennis weekends, usually 7 AM
+- Prefers Uber over Ola, Zomato for food, Blinkit for groceries, Amazon for shopping
 - Lives in gated society using MyGate
-
-## ${USER_NAME}'s Saved Contacts (for WhatsApp)
-If ${USER_NAME} mentions a contact by name and you know their number from this list, use it.
-If you DON'T know the number, set phone to empty — the deep link will open WhatsApp so ${USER_NAME} can search for the contact.
-(${USER_NAME} can add contacts here over time via memory updates)
-contacts: {}
-- Likes warm lighting in evening, bright during work
-
-## ${USER_NAME}'s Favourite Restaurants (on Zomato)
-- Bikanervala — usual order: Raj Kachori, Chole Bhature
-- Haldiram's — go-to for quick snacks
-- Burger King — when craving burgers
-- Domino's — pizza nights
-When ${USER_NAME} says "order the usual" or "order from the usual place", pick the most appropriate restaurant based on time of day (Bikanervala/Haldiram's for snacks, Burger King/Domino's for meals).
-When ${USER_NAME} mentions a food item without a restaurant, match it to the right favourite restaurant.
-When ${USER_NAME} searches for a cuisine or generic food item (coffee, biryani, Chinese, cake), use "search" param — Zomato's in-app search will show nearby options.
-Examples:
-- "Order coffee" → food_order(app: "zomato", search: "coffee") — opens Zomato search for coffee nearby
-- "Find me biryani" → food_order(app: "zomato", search: "biryani")
-- "Order from Bikanervala" → food_order(app: "zomato", restaurant: "bikanervala") — opens specific restaurant
-- "Get me a pizza" → food_order(app: "zomato", restaurant: "dominos") — matches favourite
-
-## ${USER_NAME}'s Favourite Restaurants (Zomato)
-Use restaurant key in food_order params. Match food items to the right restaurant automatically.
-
-| Key | Restaurant | Best For |
-|-----|-----------|----------|
-| bikanervala | Bikanervala | North Indian snacks — raj kachori, chole bhature, samosa, sweets, thali, chaat |
-| haldirams | Haldiram's | Namkeen, sweets, chaat, south Indian, thali, quick snacks |
-| burgerking | Burger King | Burgers, fries, whopper, chicken nuggets, shakes |
-| dominos | Domino's | Pizza, garlic bread, pasta, chicken wings |
-
-## Food Ordering Intelligence
-- If ${USER_NAME} says "order raj kachori" → use restaurant "bikanervala" and mention "Opening Bikanervala on Zomato — raj kachori is in the Snacks section"
-- If ${USER_NAME} says "order pizza" → use restaurant "dominos"  
-- If ${USER_NAME} says "order a burger" → use restaurant "burgerking"
-- If ${USER_NAME} says "something sweet" or "mithai" → use restaurant "haldirams" or "bikanervala"
-- If ${USER_NAME} says "order the usual" or "order food" without specifics → ask which restaurant or suggest based on time (snacks in evening → Bikanervala/Haldiram's, lunch → any, late night → Domino's/Burger King)
-- If ${USER_NAME} names a restaurant directly → open that one
-- Always mention what to look for on the menu in your reply to be helpful
+- Favourite restaurants: Bikanervala, Haldiram's, Burger King, Domino's
 
 ## Multi-Action Examples
-- "Heading out for dinner at 8" → cab_book + calendar_create + lights_scene(away)
-- "Good morning" → lights_scene(morning) + calendar_query(today)
-- "Goodnight" → lights_scene(goodnight)
-- "Search for wireless earbuds on Amazon" → shopping_search(amazon, "wireless earbuds", "electronics")
-- "Find me a good phone case" → shopping_search(amazon, "phone case", "mobiles")
-- "I need running shoes" → shopping_search(amazon, "running shoes", "sports")
-- "Order batteries from Amazon" → shopping_search(amazon, "batteries")
-- "Check Flipkart for laptops" → shopping_search(flipkart, "laptops", "electronics")
-- "Buy a birthday gift" → shopping_search(amazon, "birthday gift")
+- "Heading out for dinner at 8" -> cab_book + calendar_create + lights_scene(away)
+- "Good morning" -> lights_scene(morning) + calendar_query(today)
+- "Order coffee" -> food_order(search: "coffee")
+- "Order from Bikanervala" -> food_order(restaurant: "bikanervala")
+- "Search Amazon for earbuds" -> shopping_search(amazon, "earbuds")
+- "Message mom on WhatsApp saying I'll be late" -> whatsapp_message
+- "What is EBITDA?" -> QUESTION with full answer in reply
+- "What is crude oil price?" -> QUESTION (answer from your knowledge)
 
-When ${USER_NAME} says "buy", "order from Amazon", "search on Amazon", "find me", "I need" + a product → use shopping_search.
-Default to Amazon unless Flipkart is specifically mentioned.
-Be smart about the search query — extract the core product name and add useful qualifiers.
+Be smart. Chain actions naturally.`;
 
-## WhatsApp Examples
-- "Message Amit saying I'll be late" → whatsapp_message(contact: "Amit", message: "I'll be late")
-- "WhatsApp mom I'm on my way" → whatsapp_message(contact: "Mom", message: "I'm on my way")
-- "Send a WhatsApp to the team saying meeting pushed to 3" → whatsapp_message(contact: "team", message: "Meeting pushed to 3 PM")
-- "Call Priya on WhatsApp" → whatsapp_call(contact: "Priya")
-- "Open WhatsApp" → whatsapp_message(contact: "", message: "")
-
-## Question / Knowledge Examples
-- "What is EBITDA margin?" → QUESTION intent, reply with a clear explanation
-- "What's 18% GST on 5000?" → QUESTION intent, reply: "18% GST on 5000 is 900, making the total 5,900."
-- "Give me 3 tips for my investor pitch" → QUESTION intent, give 3 specific tips
-- "Compare SIP vs lump sum investment" → QUESTION intent, give a balanced comparison
-- "What's the oil barrel price?" → QUESTION intent, use web search to get current price
-- "What's the Nifty at?" → QUESTION intent, use web search for real-time data
-- "Latest news on RBI rate decision" → QUESTION intent, use web search for latest info
-- "Zomato stock price" → QUESTION intent, use web search for current price
-For QUESTION intent: your "reply" should be the FULL ANSWER. Use web search for ANY real-time data like prices, stock markets, news, weather, sports scores, exchange rates, etc. No deep links needed.
-
-Be smart. Infer what ${USER_NAME} needs. Chain actions naturally.`;
-
-// ─── Parse intent using Claude ──────────────────────
 async function parseIntent(userText) {
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const timeStr = today.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
-  // Step 1: Parse intent WITHOUT web search (clean JSON response)
   const message = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: `Current: ${dateStr}, ${timeStr}\n\n${USER_NAME} says: "${userText}"` }],
+    messages: [{ role: "user", content: "Current: " + dateStr + ", " + timeStr + "\n\n" + USER_NAME + ' says: "' + userText + '"' }],
   });
 
-  const text = message.content.filter(b => b.type === "text").map(b => b.text).join("");
+  const text = message.content.filter(function(b) { return b.type === "text"; }).map(function(b) { return b.text; }).join("");
 
   try {
     const cleaned = text.replace(/```json\n?|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
-    let result = {
+    var result = {
       intent: parsed.intent || "CHAT",
       confidence: parsed.confidence || 0.5,
       actions: parsed.actions || [],
@@ -169,67 +92,51 @@ async function parseIntent(userText) {
       deepLink: parsed.deepLink || null,
     };
 
-    // Step 2: If QUESTION intent needs real-time data, do a web search call
-    const needsLiveData = result.intent === "QUESTION" && 
-      /price|stock|market|rate|score|weather|news|latest|current|today|live|nifty|sensex|crude|oil|gold|silver|bitcoin|crypto|dollar|rupee|exchange/i.test(userText);
-    
-    if (needsLiveData) {
+    // If QUESTION needs live data, do a web search
+    var livePattern = /price|stock|market|rate|score|weather|news|latest|current|today|live|nifty|sensex|crude|oil|gold|silver|bitcoin|crypto|dollar|rupee|exchange|barrel|cost|worth|how much/i;
+    if (result.intent === "QUESTION" && livePattern.test(userText)) {
       try {
-        const searchMsg = await client.messages.create({
+        var searchMsg = await client.messages.create({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1024,
-          system: "You are a helpful assistant. Answer the question concisely in 2-3 sentences with the latest data. Just give the answer as plain text, no JSON.",
+          system: "Answer concisely in 2-3 sentences with current data. Plain text only, no JSON.",
           tools: [{ type: "web_search_20250305", name: "web_search" }],
           messages: [{ role: "user", content: userText }],
         });
-        const searchReply = searchMsg.content.filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-        if (searchReply) {
-          result.reply = searchReply.slice(0, 500);
-        }
+        var searchReply = searchMsg.content.filter(function(b) { return b.type === "text"; }).map(function(b) { return b.text; }).join(" ").trim();
+        if (searchReply) result.reply = searchReply.slice(0, 500);
       } catch (searchErr) {
-        console.log("  ⚠️ Web search failed:", searchErr.message);
-        // Keep original reply from step 1
+        console.log("  Web search failed:", searchErr.message);
       }
     }
 
     return result;
   } catch (err) {
-    // Fallback for non-JSON responses
-    return {
-      intent: "CHAT",
-      confidence: 0.3,
-      actions: [],
-      reply: text.slice(0, 300) || "I understood you but had trouble processing. Try again?",
-      deepLink: null,
-    };
+    return { intent: "CHAT", confidence: 0.3, actions: [], reply: text.slice(0, 300) || "Try again?", deepLink: null };
   }
 }
 
-// ─── Execute Actions ────────────────────────────────
 async function executeActions(actions) {
-  const results = [];
-  for (const action of actions) {
+  var results = [];
+  for (var i = 0; i < actions.length; i++) {
+    var action = actions[i];
     try {
       switch (action.type) {
         case "lights_scene":
           if (IFTTT_KEY) {
-            const scene = action.params?.scene || "bright";
-            const event = "ronny_" + (scene === "movie" ? "movie_mode" : scene);
-            await fetch(`https://maker.ifttt.com/trigger/${event}/with/key/${IFTTT_KEY}`, { method: "POST" });
-            results.push({ type: action.type, status: "triggered", scene });
+            var scene = (action.params && action.params.scene) || "bright";
+            var event = "ronny_" + (scene === "movie" ? "movie_mode" : scene);
+            await fetch("https://maker.ifttt.com/trigger/" + event + "/with/key/" + IFTTT_KEY, { method: "POST" });
+            results.push({ type: action.type, status: "triggered", scene: scene });
           } else {
-            results.push({ type: action.type, status: "dry_run", scene: action.params?.scene });
+            results.push({ type: action.type, status: "dry_run" });
           }
           break;
 
         case "calendar_create":
           if (CALENDAR_URL) {
-            const resp = await fetch(CALENDAR_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "create", ...action.params }),
-            });
-            results.push({ type: action.type, status: "created", data: await resp.json() });
+            var cResp = await fetch(CALENDAR_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ action: "create" }, action.params)) });
+            results.push({ type: action.type, status: "created", data: await cResp.json() });
           } else {
             results.push({ type: action.type, status: "dry_run", params: action.params });
           }
@@ -237,153 +144,84 @@ async function executeActions(actions) {
 
         case "calendar_query":
           if (CALENDAR_URL) {
-            const date = action.params?.date || "today";
-            const resp = await fetch(CALENDAR_URL + "?action=" + date);
-            results.push({ type: action.type, status: "fetched", data: await resp.json() });
+            var qDate = (action.params && action.params.date) || "today";
+            var qResp = await fetch(CALENDAR_URL + "?action=" + qDate);
+            results.push({ type: action.type, status: "fetched", data: await qResp.json() });
           } else {
             results.push({ type: action.type, status: "dry_run" });
           }
           break;
 
         case "cab_book":
-          const service = action.params?.service || "uber";
-          const dest = encodeURIComponent(action.params?.destination || "");
-          const cabLink = service === "uber"
-            ? (dest ? `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}` : "https://m.uber.com/ul/")
+          var cabService = (action.params && action.params.service) || "uber";
+          var cabDest = encodeURIComponent((action.params && action.params.destination) || "");
+          var cabLink = cabService === "uber"
+            ? (cabDest ? "https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=" + cabDest : "https://m.uber.com/ul/")
             : "https://olawebcdn.com/assets/ola-universal-link.html";
           results.push({ type: action.type, status: "link_generated", deepLink: cabLink });
           break;
 
         case "food_order":
-          const foodApp = action.params?.app || "zomato";
-          const restaurant = (action.params?.restaurant || "").toLowerCase();
-          const foodSearch = (action.params?.search || action.params?.items_hint || "").toLowerCase();
-          const FAVOURITE_RESTAURANTS = {
-            "bikanervala": "Bikanervala",
-            "haldirams": "Haldirams",
-            "haldiram's": "Haldirams",
-            "burger king": "Burger King",
-            "dominos": "Dominos",
-            "domino's": "Dominos",
-          };
-          const matchedFav = Object.keys(FAVOURITE_RESTAURANTS).find(name => restaurant.includes(name));
-          let foodLink;
-          if (foodApp === "zomato" || !foodApp) {
-            const searchTerm = matchedFav ? FAVOURITE_RESTAURANTS[matchedFav] : (restaurant || foodSearch || "");
-            if (searchTerm) {
-              // Use Zomato app scheme — opens search inside the app
-              foodLink = `https://www.zomato.com/ncr/search?q=${encodeURIComponent(searchTerm)}`;
-            } else {
-              foodLink = "zomato://";
-            }
-          } else {
-            // Swiggy
-            const swiggyTerm = restaurant || foodSearch || "";
-            foodLink = swiggyTerm ? `swiggy://search?query=${encodeURIComponent(swiggyTerm)}` : "swiggy://";
-          }
+          var foodRestaurant = ((action.params && action.params.restaurant) || "").toLowerCase();
+          var foodSearch = ((action.params && action.params.search) || (action.params && action.params.items_hint) || "").toLowerCase();
+          var favs = { "bikanervala": "Bikanervala", "haldirams": "Haldirams", "haldiram's": "Haldirams", "burger king": "Burger King", "dominos": "Dominos", "domino's": "Dominos" };
+          var matchedFav = null;
+          Object.keys(favs).forEach(function(name) { if (foodRestaurant.includes(name)) matchedFav = name; });
+          var foodTerm = matchedFav ? favs[matchedFav] : (foodRestaurant || foodSearch || "");
+          var foodLink = foodTerm
+            ? "https://www.zomato.com/gurgaon/search?q=" + encodeURIComponent(foodTerm)
+            : "https://www.zomato.com/gurgaon";
           results.push({ type: action.type, status: "link_generated", deepLink: foodLink });
           break;
 
         case "grocery_order":
-          const groceryApp = action.params?.app || "blinkit";
-          const groceryLink = groceryApp === "blinkit" ? "https://blinkit.com" : "https://www.bigbasket.com";
+          var groceryApp = (action.params && action.params.app) || "blinkit";
+          var groceryLink = groceryApp === "blinkit" ? "https://blinkit.com" : "https://www.bigbasket.com";
           results.push({ type: action.type, status: "link_generated", deepLink: groceryLink });
           break;
 
         case "shopping_search":
-          const shopApp = action.params?.app || "amazon";
-          const shopQuery = action.params?.query || "";
-          const shopCategory = action.params?.category || "";
-          let shopLink;
-
+          var shopApp = (action.params && action.params.app) || "amazon";
+          var shopQuery = (action.params && action.params.query) || "";
+          var shopLink;
           if (shopApp === "amazon") {
-            // Amazon.in universal link — opens directly in Amazon app
-            if (shopQuery) {
-              const amazonParams = new URLSearchParams({ k: shopQuery });
-              if (shopCategory) {
-                // Amazon category node mapping
-                const AMAZON_CATEGORIES = {
-                  "electronics": "electronics",
-                  "mobiles": "mobile-phones",
-                  "fashion": "fashion",
-                  "home": "home-garden",
-                  "beauty": "beauty",
-                  "books": "books",
-                  "grocery": "grocery",
-                  "appliances": "appliances",
-                  "toys": "toys",
-                  "sports": "sports",
-                  "kitchen": "kitchen",
-                };
-                const catSlug = AMAZON_CATEGORIES[shopCategory] || shopCategory;
-                shopLink = `https://www.amazon.in/s?k=${encodeURIComponent(shopQuery)}&i=aps&ref=nb_sb_noss`;
-              } else {
-                shopLink = `https://www.amazon.in/s?k=${encodeURIComponent(shopQuery)}`;
-              }
-            } else {
-              shopLink = "https://www.amazon.in";
-            }
+            shopLink = shopQuery ? "https://www.amazon.in/s?k=" + encodeURIComponent(shopQuery) : "https://www.amazon.in";
           } else {
-            // Flipkart
-            if (shopQuery) {
-              shopLink = `https://www.flipkart.com/search?q=${encodeURIComponent(shopQuery)}`;
-            } else {
-              shopLink = "https://www.flipkart.com";
-            }
+            shopLink = shopQuery ? "https://www.flipkart.com/search?q=" + encodeURIComponent(shopQuery) : "https://www.flipkart.com";
           }
-
-          results.push({ type: action.type, status: "link_generated", deepLink: shopLink, query: shopQuery, app: shopApp });
+          results.push({ type: action.type, status: "link_generated", deepLink: shopLink });
           break;
 
         case "tennis_book":
-          results.push({ type: action.type, status: "link_generated", deepLink: "mygate://amenities" });
+          results.push({ type: action.type, status: "link_generated", deepLink: "https://mygate.com" });
           break;
 
         case "mygate_action":
-          const myAction = action.params?.action || "services";
-          results.push({ type: action.type, status: "link_generated", deepLink: myAction === "visitor_preapprove" ? "mygate://visitors/preapprove" : "mygate://" });
+          results.push({ type: action.type, status: "link_generated", deepLink: "https://mygate.com" });
           break;
 
         case "whatsapp_message":
-          const waContact = action.params?.contact || "";
-          const waPhone = action.params?.phone || "";
-          const waMessage = action.params?.message || "";
-          let waLink;
-
+          var waPhone = ((action.params && action.params.phone) || "").replace(/[^0-9]/g, "");
+          var waMsg = (action.params && action.params.message) || "";
+          var waLink;
           if (waPhone) {
-            // Direct link with phone number (must include country code, e.g., 91XXXXXXXXXX)
-            const cleanPhone = waPhone.replace(/[^0-9]/g, "");
-            const phoneWithCode = cleanPhone.startsWith("91") ? cleanPhone : "91" + cleanPhone;
-            if (waMessage) {
-              waLink = `https://wa.me/${phoneWithCode}?text=${encodeURIComponent(waMessage)}`;
-            } else {
-              waLink = `https://wa.me/${phoneWithCode}`;
-            }
-          } else if (waMessage && !waContact) {
-            // No contact, no phone — just open WhatsApp with text ready to share
-            waLink = `https://wa.me/?text=${encodeURIComponent(waMessage)}`;
+            var ph = waPhone.startsWith("91") ? waPhone : "91" + waPhone;
+            waLink = waMsg ? "https://wa.me/" + ph + "?text=" + encodeURIComponent(waMsg) : "https://wa.me/" + ph;
+          } else if (waMsg) {
+            waLink = "https://wa.me/?text=" + encodeURIComponent(waMsg);
           } else {
-            // No phone number — open WhatsApp (user picks contact)
-            // On iOS, whatsapp:// opens the app directly
             waLink = "https://wa.me/";
           }
-          results.push({ type: action.type, status: "link_generated", deepLink: waLink, contact: waContact });
+          results.push({ type: action.type, status: "link_generated", deepLink: waLink });
           break;
 
         case "whatsapp_call":
-          const callPhone = (action.params?.phone || "").replace(/[^0-9]/g, "");
-          if (callPhone) {
-            const callPhoneWithCode = callPhone.startsWith("91") ? callPhone : "91" + callPhone;
-            results.push({ type: action.type, status: "link_generated", deepLink: `https://wa.me/${callPhoneWithCode}` });
-          } else {
-            // Can't deep-link to a call without a number — open WhatsApp
-            results.push({ type: action.type, status: "link_generated", deepLink: "https://wa.me/" });
-          }
+          var callPh = ((action.params && action.params.phone) || "").replace(/[^0-9]/g, "");
+          results.push({ type: action.type, status: "link_generated", deepLink: callPh ? "https://wa.me/" + (callPh.startsWith("91") ? callPh : "91" + callPh) : "https://wa.me/" });
           break;
 
         case "question_answer":
-          // No action needed — the answer is in parsed.reply
-          results.push({ type: action.type, status: "answered", topic: action.params?.topic || "general" });
+          results.push({ type: action.type, status: "answered" });
           break;
 
         default:
@@ -396,87 +234,69 @@ async function executeActions(actions) {
   return results;
 }
 
-// ─── Main Endpoint ──────────────────────────────────
-app.post("/ronny", async (req, res) => {
+app.post("/ronny", async function(req, res) {
   try {
-    const userText = typeof req.body === "string" ? req.body : req.body.text || req.body.message;
-    if (!userText || userText.trim().length === 0) {
-      return res.json({ reply: "I didn't catch that. Try again?" });
-    }
-
-    console.log(`\n🎤 "${userText}"`);
-    const parsed = await parseIntent(userText);
-    console.log(`🧠 ${parsed.intent} | 💬 ${parsed.reply}`);
-
-    const results = await executeActions(parsed.actions);
-
-    // Find primary deep-link: check parsed.deepLink first, then action results
-    let deepLink = parsed.deepLink || null;
-    if (!deepLink) {
-      for (const r of results) {
-        if (r.deepLink) {
-          deepLink = r.deepLink;
-          break;
-        }
-      }
-    }
-
-    console.log(`🔗 deepLink: ${deepLink || "none"}`);
-
+    var userText = typeof req.body === "string" ? req.body : (req.body.text || req.body.message);
+    if (!userText || userText.trim().length === 0) return res.json({ reply: "I didn't catch that." });
+    console.log('\n  "' + userText + '"');
+    var parsed = await parseIntent(userText);
+    console.log("  " + parsed.intent + " | " + parsed.reply);
+    var results = await executeActions(parsed.actions);
+    var deepLink = parsed.deepLink || null;
+    for (var i = 0; i < results.length; i++) { if (results[i].deepLink) { deepLink = results[i].deepLink; break; } }
+    console.log("  link: " + (deepLink || "none"));
     res.json({ reply: parsed.reply, intent: parsed.intent, actions: results, deepLink: deepLink });
   } catch (err) {
-    console.error("❌", err.message);
-    res.json({ reply: "Something went wrong. Try again in a sec.", error: err.message });
+    console.error("  ERROR:", err.message);
+    res.json({ reply: "Something went wrong. Try again.", error: err.message });
   }
 });
 
-// ─── Debug Test Endpoint (GET) ──────────────────────
-// Test: https://your-url/ronny/test?q=coffee+on+zomato
-app.get("/ronny/test", async (req, res) => {
-  const q = req.query.q || "order coffee on zomato";
+app.get("/ronny/ask", async function(req, res) {
+  var q = req.query.text || req.query.q || "";
+  if (!q.trim()) return res.json({ reply: "Send ?text=your+command" });
   try {
-    const parsed = await parseIntent(q);
-    const results = await executeActions(parsed.actions);
-    let deepLink = parsed.deepLink || null;
-    if (!deepLink) {
-      for (const r of results) {
-        if (r.deepLink) { deepLink = r.deepLink; break; }
-      }
-    }
-    res.json({ query: q, intent: parsed.intent, reply: parsed.reply, deepLink, actions: results, rawParsed: parsed });
+    var parsed = await parseIntent(q);
+    var results = await executeActions(parsed.actions);
+    var dl = parsed.deepLink || null;
+    for (var i = 0; i < results.length; i++) { if (results[i].deepLink) { dl = results[i].deepLink; break; } }
+    res.json({ reply: parsed.reply, intent: parsed.intent, deepLink: dl, actions: results });
   } catch (err) {
-    res.json({ query: q, error: err.message });
+    res.json({ reply: "Error", error: err.message });
   }
 });
 
-// ─── Calendar Quick View ────────────────────────────
-app.get("/ronny/today", async (req, res) => {
+app.get("/ronny/today", async function(req, res) {
   try {
     if (CALENDAR_URL) {
-      const resp = await fetch(CALENDAR_URL + "?action=today");
-      const data = await resp.json();
-      const count = data.events?.length || 0;
-      const reply = count === 0
-        ? "Your day is clear — no meetings."
-        : `You have ${count} event${count > 1 ? "s" : ""} today: ${data.events.map(e => e.title).join(", ")}.`;
-      res.json({ reply, events: data.events });
+      var resp = await fetch(CALENDAR_URL + "?action=today");
+      var data = await resp.json();
+      var count = (data.events && data.events.length) || 0;
+      var reply = count === 0 ? "Your day is clear." : "You have " + count + " events today: " + data.events.map(function(e) { return e.title; }).join(", ") + ".";
+      res.json({ reply: reply, events: data.events });
     } else {
-      res.json({ reply: "Calendar not connected yet. Add GOOGLE_APPS_SCRIPT_URL to connect.", events: [] });
+      res.json({ reply: "Calendar not connected.", events: [] });
     }
   } catch (err) {
-    res.json({ reply: "Couldn't fetch calendar.", error: err.message });
+    res.json({ reply: "Calendar error.", error: err.message });
   }
 });
 
-// ─── Health Check ───────────────────────────────────
-app.get("/", (req, res) => {
-  res.json({ status: "🟢 Ronny is awake", version: "2.0.0" });
+app.get("/", function(req, res) { res.json({ status: "Ronny is awake", version: "3.0.0" }); });
+
+app.get("/manifest.json", function(req, res) {
+  res.json({ name: "Ronny", short_name: "Ronny", start_url: "/app", display: "standalone", background_color: "#09090B", theme_color: "#09090B" });
 });
 
-// ─── Start ──────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n🤖 Ronny is listening on port ${PORT}`);
-  console.log(`   POST /ronny       — main voice endpoint`);
-  console.log(`   GET  /ronny/today — today's calendar\n`);
+app.get("/app", function(req, res) {
+  res.setHeader("Content-Type", "text/html");
+  res.send('<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"><meta name="theme-color" content="#09090B"><meta name="mobile-web-app-capable" content="yes"><title>Ronny</title><link rel="manifest" href="/manifest.json"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><style>*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden}body{font-family:DM Sans,sans-serif;background:#09090B;color:#E4E4E7;display:flex;flex-direction:column}.hd{padding:16px 20px 12px;text-align:center;border-bottom:1px solid rgba(255,255,255,.06)}.hd h1{font-size:24px;font-weight:700;background:linear-gradient(135deg,#F8FAFC,#A855F7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.hd .st{font-size:11px;color:#22C55E;margin-top:4px}.ch{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}.mg{max-width:85%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.5}.mg.u{align-self:flex-end;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.2);border-radius:14px 14px 4px 14px}.mg.r{align-self:flex-start;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.15);border-radius:14px 14px 14px 4px}.mg .lb{font-size:9px;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}.mg.u .lb{color:#3B82F6}.mg.r .lb{color:#A855F7}.mg .lk{display:inline-block;margin-top:6px;padding:5px 12px;border-radius:6px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#22C55E;font-size:12px;font-weight:600;text-decoration:none}.bt{padding:12px 16px 20px;border-top:1px solid rgba(255,255,255,.06)}.mr{display:flex;justify-content:center;margin-bottom:10px}.mc{width:64px;height:64px;border-radius:50%;border:2px solid rgba(168,85,247,.3);background:rgba(168,85,247,.1);display:flex;align-items:center;justify-content:center;cursor:pointer}.mc.on{border-color:#EF4444;background:rgba(239,68,68,.15)}.mc.th{border-color:#FBBF24;background:rgba(251,191,36,.1)}.mc svg{width:28px;height:28px;fill:#A855F7}.mc.on svg{fill:#EF4444}.mc.th svg{fill:#FBBF24}.ms{font-size:12px;color:#71717A;text-align:center;height:16px;margin-bottom:8px}.ir{display:flex;gap:8px}.ip{flex:1;padding:10px 14px;font:400 14px DM Sans,sans-serif;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;color:#E4E4E7;outline:none}.sb{padding:10px 16px;border-radius:10px;border:1px solid rgba(168,85,247,.3);background:rgba(168,85,247,.12);color:#C084FC;font:600 14px DM Sans,sans-serif;cursor:pointer}.qk{display:flex;gap:6px;overflow-x:auto;padding:8px 0 0}.qk button{flex-shrink:0;padding:6px 12px;font:500 12px DM Sans,sans-serif;border-radius:8px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);color:#71717A;cursor:pointer;white-space:nowrap}</style></head><body><div class="hd"><h1>Ronny</h1><div class="st" id="st">Connecting...</div></div><div class="ch" id="ch"></div><div class="bt"><div class="mr"><div class="mc" id="mc" onclick="tg()"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg></div></div><div class="ms" id="ms">Tap mic or type below</div><div class="ir"><input class="ip" id="ip" placeholder="Type a command..." enterkeyhint="send"><button class="sb" onclick="st2()">Send</button></div><div class="qk"><button onclick="sq(\'Coffee on Zomato\')">Coffee</button><button onclick="sq(\'Book cab to office\')">Cab</button><button onclick="sq(\'Amazon earbuds\')">Amazon</button><button onclick="sq(\'WhatsApp mom saying will be late\')">WhatsApp</button><button onclick="sq(\'Crude oil price\')">Oil Price</button><button onclick="sq(\'Goodnight\')">Night</button></div></div><script>var A=location.origin,S=window.SpeechRecognition||window.webkitSpeechRecognition,rc,li=0;if(S){rc=new S;rc.lang="en-IN";rc.onresult=function(e){sp();sd(e.results[0][0].transcript)};rc.onerror=function(){sp()};rc.onend=function(){if(li)sp()}}function tg(){if(!rc)return alert("No mic");if(li){rc.stop();sp()}else{rc.start();li=1;document.getElementById("mc").className="mc on";ss("Listening...")}}function sp(){li=0;document.getElementById("mc").className="mc";ss("Tap mic or type below")}function ss(t){document.getElementById("ms").textContent=t}function am(t,y,l){var c=document.getElementById("ch"),d=document.createElement("div");d.className="mg "+y;d.innerHTML="<div class=lb>"+(y=="u"?"YOU":"RONNY")+"</div><div>"+t+"</div>"+(l&&y=="r"?"<a class=lk href="+l+" target=_blank>Open App</a>":"");c.appendChild(d);c.scrollTop=1e6}function sd(t){am(t,"u");document.getElementById("mc").className="mc th";ss("Thinking...");fetch(A+"/ronny",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t})}).then(function(r){return r.json()}).then(function(d){document.getElementById("mc").className="mc";ss("Tap mic or type below");am(d.reply,"r",d.deepLink);if(speechSynthesis){var u=new SpeechSynthesisUtterance(d.reply);u.lang="en-IN";u.rate=1.05;speechSynthesis.speak(u)}if(d.deepLink)setTimeout(function(){window.open(d.deepLink,"_blank")},1500)}).catch(function(){document.getElementById("mc").className="mc";am("Could not reach Ronny.","r")})}function st2(){var i=document.getElementById("ip"),t=i.value.trim();if(t){i.value="";sd(t)}}function sq(t){sd(t)}document.getElementById("ip").onkeydown=function(e){if(e.key=="Enter")st2()};fetch(A+"/").then(function(r){return r.json()}).then(function(d){document.getElementById("st").textContent="Online v"+d.version}).catch(function(){document.getElementById("st").textContent="Offline"})</script></body></html>');
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log("\nRonny is listening on port " + PORT);
+  console.log("  POST /ronny      - voice endpoint");
+  console.log("  GET  /ronny/ask  - Tasker endpoint");
+  console.log("  GET  /app        - Android/Desktop PWA\n");
 });
