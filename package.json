@@ -1,7 +1,7 @@
 {
   "name": "ronny-agent",
-  "version": "3.0.0",
-  "description": "Ronny — your personal AI agent",
+  "version": "4.0.0",
+  "description": "Ronny FPA Copilot",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
